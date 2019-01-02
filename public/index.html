@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Document</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.1.1/socket.io.js"></script> -->
+  <style>
+    body,html{margin:0;padding:0;}
+    #container{width: 400px;margin: 0 auto; margin-top: 20px;}
+    #show{border:1px solid #ccc;min-height: 600px;overflow: hidden;}
+    #send{width: 100%;padding:0;box-sizing: border-box;}
+    .message{overflow: hidden; padding: 0 20px;}
+    .message .left{float: left;}
+    .message .right{float: right;}
+    #video{
+
+      position: relative;
+      width: 666.66px;
+      
+    }
+    #remoteVideo{
+      position: absolute;
+      top: 0;
+      left: 0;
+      /*float: left;*/
+      width: 100%;
+      /*height:100%;*/
+    }
+    #localVideo{
+      
+      width: 150px;
+      position: absolute;
+      top: 0;
+      right: 0;
+      z-index: 10;
+    }
+    .clearfix::after {
+            content: ".";
+            clear: both;
+            display: block;
+            overflow: hidden;
+            font-size: 0;
+            height: 0;
+        }
+
+      .clearfix {
+            zoom: 1;
+        }
+  </style>
+</head>
+<body>
+  <div id="video" class="clearfix">
+    <video id="localVideo" src="" ></video>
+    <video id="remoteVideo" src="" ></video>
+  </div>
+  <div id="container">
+    <div name="" id="show" >
+    <!-- <p class="message"><span class="left">你好</span></p> -->
+    <!-- <p class="message"><span class="right">你好</span></p> -->
+    </div>
+    <p><textarea name="" id="send"  rows="5"></textarea></p>
+    <p><button id="sendBtn">send</button></p>
+  </div>
+  
+</body>
+<script>
+  var receiveChannel;
+  var oShow = document.querySelector("#show");
+  var oSend = document.querySelector("#send");
+  var oSendBtn = document.querySelector("#sendBtn");
+  var oLocalVideo = document.querySelector("#localVideo");
+  var oRemoteVideo = document.querySelector("#remoteVideo");
+  var isInitiator;
+  window.room = prompt("Enter room name:");
+  var socket = io();  
+  if (room !== "") {
+    console.log('Message from client: Asking to join room ' + room);
+    socket.emit('create or join', room);
+  }
+  socket.on('created', function(room, clientId) {
+    isInitiator = true;
+  });
+  socket.on('joined', function(room, clientId) {
+    isInitiator = false;
+  });
+  socket.on('full', function(room) {
+    console.log('Message from client: Room ' + room + ' is full :^(');
+  });
+  var PeerConnection = window.PeerConnection || window.webkitPeerConnection00 || window.webkitRTCPeerConnection || window.mozRTCPeerConnection || window.RTCPeerConnection;
+    var localConnection = new PeerConnection(null);
+    var remoteConnection = new PeerConnection(null);
+  navigator.mediaDevices.getUserMedia({ audio: true, video: true }).then(function(MediaStream){
+      oLocalVideo.srcObject = MediaStream;
+      oLocalVideo.play();
+      localConnection.addStream(MediaStream);
+    });
+
+  socket.on("ready",function(){
+    
+    var sendChannel = localConnection.createDataChannel('sendDataChannel',null);
+    localConnection.onicecandidate = function(event) {
+        socket.emit('Localcandidate',JSON.stringify(event.candidate));
+      };
+      sendChannel.onopen = function(){
+        console.log("连接成功");
+     }
+    sendChannel.onclose = function(){
+        console.log("连接关闭");
+    }
+      socket.on("romotecandidate",function(event){  
+        remoteConnection.addIceCandidate(JSON.parse(event),function(){},function(msg){
+        });
+      }); 
+      remoteConnection.onicecandidate = function(event){
+        socket.emit("sendRemoteCandidateToLocal",JSON.stringify(event.candidate));
+      };
+      socket.on("sendRemoteCandidate",function(event){
+        localConnection.addIceCandidate(JSON.parse(event),function(){},function(msg){
+        });
+      }); 
+      remoteConnection.ondatachannel = function(event){
+        receiveChannel = event.channel;
+        receiveChannel.onmessage = function(e){
+          var oMessage = document.createElement("p");
+          oMessage.className = "message";
+          var string = `<span class="right">${e.data}</span>`;
+          oMessage.innerHTML = string;
+          oShow.appendChild(oMessage);
+          // oRemoteVideo.srcObject = e;
+        };
+        receiveChannel.onopen = function(){};
+        receiveChannel.onclose = function(){};
+      }
+      // localConnection.createOffer().then(function(des){
+      //  console.log(JSON.stringify(des));
+      //  localConnection.setLocalDescription(des);
+      //  socket.emit('localOfferDes',JSON.stringify(des));
+      // });
+      socket.on("remoteOfferDes",function(des){
+        console.log(JSON.parse(des));
+        remoteConnection.setRemoteDescription(JSON.parse(des))
+        remoteConnection.createAnswer().then(function(d){
+        remoteConnection.setLocalDescription(d);
+        socket.emit('remoteAnswerDes',JSON.stringify(d));
+      })
+      });
+      socket.on("OfferDes",function(des){
+        console.log(JSON.parse(des));
+        localConnection.setRemoteDescription(JSON.parse(des))
+      });
+      oSendBtn.onclick = function(){
+        sendChannel.send(oSend.value);
+        var oMessage = document.createElement("p");
+        oMessage.className = "message";
+        var string = `<span class="left">${oSend.value}</span>`;
+        oMessage.innerHTML = string;
+        oShow.appendChild(oMessage);
+        oSend.value = "";
+      };
+      localConnection.onnegotiationneeded = function(){
+          localConnection.createOffer().then(function(des){
+          console.log(JSON.stringify(des));
+          localConnection.setLocalDescription(des);
+          socket.emit('localOfferDes',JSON.stringify(des));
+        });
+      }
+    remoteConnection.onaddstream = function(event){
+        console.log(event.stream);
+        oRemoteVideo.srcObject = event.stream;
+        oRemoteVideo.play();
+      }
+  });
+</script>
+</html>
